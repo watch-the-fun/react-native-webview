@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.support.annotation.RequiresApi;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -26,6 +27,7 @@ import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -61,11 +63,16 @@ import com.reactnativecommunity.webview.events.TopShouldStartLoadWithRequestEven
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -593,6 +600,10 @@ public class RNCWebViewManager extends SimpleViewManager<WebView> {
     protected boolean mLastLoadFailed = false;
     protected @Nullable
     ReadableArray mUrlPrefixesForDefaultIntent;
+    /**
+     * 允许拦截的图片扩展名
+     */
+    private List allowInterceptImageSuffixes = Arrays.asList(new String[]{"jpg", "jpeg", "png", "svg", "gif"});
 
     @Override
     public void onPageFinished(WebView webView, String url) {
@@ -682,6 +693,43 @@ public class RNCWebViewManager extends SimpleViewManager<WebView> {
 
     public void setUrlPrefixesForDefaultIntent(ReadableArray specialUrls) {
       mUrlPrefixesForDefaultIntent = specialUrls;
+    }
+
+    /**
+     * 实现请求拦截，处理使用 server 端 html 访问设备本地图片问题
+     *
+     * @param view
+     * @param request
+     * @return
+     */
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+      FileInputStream input;
+      String url = request.getUrl().toString();
+      String key = "http://android_image";
+      /*如果请求包含约定的字段 说明是要拿本地的图片*/
+      if (url.contains(key)) {
+        // 去除图片 url 多余参数
+        if(url.indexOf("?") != -1){
+          url = url.substring(0,url.indexOf("?"));
+        }
+        // 获取文件扩展名
+        String suffix = url.substring(url.lastIndexOf(".") + 1);
+        // 扩展名为允许的图片类型，进行拦截处理
+        if (allowInterceptImageSuffixes.contains(suffix)) {
+          String imgPath = url.replace(key, "");
+//          Log.d("RNCWebView", "本地图片路径：" + imgPath.trim());
+          try {
+            input = new FileInputStream(new File(imgPath.trim()));
+            WebResourceResponse response = new WebResourceResponse("image/" + suffix, "UTF-8", input);
+            return response;
+          } catch (FileNotFoundException e) {
+            Log.e("RNCWebView", e.getMessage(), e);
+          }
+        }
+      }
+      return super.shouldInterceptRequest(view, request);
     }
   }
 
